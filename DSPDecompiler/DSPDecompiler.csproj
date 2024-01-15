@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="McMaster.Extensions.Hosting.CommandLine" Version="4.1.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ILSpy\ICSharpCode.Decompiler\ICSharpCode.Decompiler.csproj" />
+    <ProjectReference Include="..\..\ILSpy\ICSharpCode.ILSpyX\ICSharpCode.ILSpyX.csproj" />
+  </ItemGroup>
+
+</Project>
