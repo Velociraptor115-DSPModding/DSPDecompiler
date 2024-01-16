@@ -1,4 +1,5 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -76,8 +77,8 @@ class Program
 
     try
     {
-      string projectFileName = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(DspAssemblyPath),
-        Path.GetFileNameWithoutExtension(DspAssemblyPath) + ".csproj");
+      var projectName = Path.GetFileNameWithoutExtension(DspAssemblyPath);
+      string projectFileName = Path.Combine(outputDirectory, projectName, $"{projectName}.csproj");
       var projectId = DecompileAsProjectCustom(app, DspAssemblyPath, projectFileName, Guid.NewGuid());
 
       var project = new ProjectItem(projectFileName, projectId.PlatformName, projectId.Guid, projectId.TypeGuid);
@@ -153,13 +154,16 @@ class Program
     var projectILDir = $"{projectDir}-il";
 
     Directory.CreateDirectory(projectLocalNameMapDir);
+    Console.WriteLine("Collecting Local Name Maps");
     var localNameMapsRead = LocalNameMapUtils.CollectLocalNameMapsFromDirectory(projectLocalNameMapDir);
     
     var metadata = module.Metadata;
+    Console.WriteLine("Generating Compact Method Identifiers");
     var compactMethodIdentifiers = CompactMethodIdentifier.GenerateFrom(metadata);
 
     var overrideLocalNameMap = new Dictionary<MethodDefinitionHandle, Dictionary<string, string>>();
 
+    Console.WriteLine("Generating Override Local Name Map");
     foreach (var methodDefinitionHandle in metadata.MethodDefinitions)
     {
       var methodIdentifier = compactMethodIdentifiers[methodDefinitionHandle];
@@ -176,6 +180,7 @@ class Program
 
     var decompiler = new SpecificGuidWholeProjectDecompiler(decompilerSettings, projectGuid, resolver, resolver, wrappedGenPdb);
     
+    Console.WriteLine("Commencing Whole Project Decompilation");
     if (Directory.Exists(projectDir))
       Directory.Delete(projectDir, true);
     Directory.CreateDirectory(projectDir);
@@ -184,8 +189,21 @@ class Program
     ProjectId? projectId;
     {
       using var genPdbStream = File.OpenWrite(genPdbPath);
+      var progressStopwatch = new Stopwatch();
+      progressStopwatch.Start();
+      decompiler.ProgressIndicator = new Progress<DecompilationProgress>(progress =>
+      {
+        if (progressStopwatch.Elapsed.TotalMilliseconds > 100)
+        {
+          progressStopwatch.Restart();
+          var percentage = (progress.UnitsCompleted / (double)progress.TotalUnits).ToString("0.00%");
+          Console.WriteLine($"Decompiling... {percentage} ({progress.UnitsCompleted} / {progress.TotalUnits}) : {progress.Status}");
+        }
+      });
       projectId = decompiler.DecompileProject(module, projectDir, projectFileWriter, genPdbStream);
     }
+    
+    Console.WriteLine("Writing Local Name Maps and disassembled IL");
     
     if (Directory.Exists(projectLocalNameMapDir))
       Directory.Delete(projectLocalNameMapDir, true);
@@ -194,8 +212,36 @@ class Program
     if (Directory.Exists(projectILDir))
       Directory.Delete(projectILDir, true);
     Directory.CreateDirectory(projectILDir);
-    foreach (var fileTypes in decompiler.GetFilesToDecompileTypesIn(module))
+    var files = decompiler.GetFilesToDecompileTypesIn(module).ToList();
+    
+    var lnmProgress = new DecompilationProgress { TotalUnits = files.Count, Title = "Writing Local Name Maps" };
+    var lnmProgressStopwatch = new Stopwatch();
+    lnmProgressStopwatch.Start();
+    IProgress<DecompilationProgress> lnmProgressReporter = new Progress<DecompilationProgress>(p =>
     {
+      if (lnmProgressStopwatch.Elapsed.TotalMilliseconds > 100)
+      {
+        lnmProgressStopwatch.Restart();
+        var percentage = (p.UnitsCompleted / (double)p.TotalUnits).ToString("0.00%");
+        Console.WriteLine($"{p.Title}... {percentage} ({p.UnitsCompleted} / {p.TotalUnits}) : {p.Status}");
+      }
+    });
+    var ilProgress = new DecompilationProgress { TotalUnits = files.Count, Title = "Writing IL" };
+    var ilProgressStopwatch = new Stopwatch();
+    ilProgressStopwatch.Start();
+    IProgress<DecompilationProgress> ilProgressReporter = new Progress<DecompilationProgress>(p =>
+    {
+      if (ilProgressStopwatch.Elapsed.TotalMilliseconds > 100)
+      {
+        ilProgressStopwatch.Restart();
+        var percentage = (p.UnitsCompleted / (double)p.TotalUnits).ToString("0.00%");
+        Console.WriteLine($"{p.Title}... {percentage} ({p.UnitsCompleted} / {p.TotalUnits}) : {p.Status}");
+      }
+    });
+
+    Parallel.For(0, files.Count, new ParallelOptions() { MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
+    {
+      var fileTypes = files[i];
       var fileName = fileTypes.Key;
       var types = fileTypes.ToList();
 
@@ -209,15 +255,12 @@ class Program
           var isPresent = recordNamesHook.RecordLocalNameMap.TryGetValue(methodDefHandle, out var locals);
           // if (!isPresent)
           //   Console.WriteLine($"{methodIdentifier} is not present in record local name map");
-          return new LocalNameMap()
-          {
-            Method = methodIdentifier,
-            Locals = locals ?? new()
-          };
+          return new LocalNameMap() { Method = methodIdentifier, Locals = locals ?? new() };
         }).Where(x => x.Locals.Count > 0);
       }).ToList();
-      
-      var mappingFilePath = Path.Combine(projectLocalNameMapDir, fileName) + ".m.json";
+
+      var mappingFileName = fileName + ".m.json";
+      var mappingFilePath = Path.Combine(projectLocalNameMapDir, mappingFileName);
       Directory.CreateDirectory(Path.GetDirectoryName(mappingFilePath));
       try
       {
@@ -228,9 +271,14 @@ class Program
         Console.WriteLine(e);
         // throw;
       }
+      
+      lnmProgress.Status = mappingFileName;
+      Interlocked.Increment(ref lnmProgress.UnitsCompleted);
+      lnmProgressReporter?.Report(lnmProgress);
 
       var csFilePath = Path.Combine(projectDir, fileName);
-      var ilFilePath = Path.Combine(projectILDir, fileName) + ".il";
+      var ilFileName = fileName + ".il";
+      var ilFilePath = Path.Combine(projectILDir, ilFileName);
       Directory.CreateDirectory(Path.GetDirectoryName(ilFilePath));
       {
         using var output = new StringWriter();
@@ -247,7 +295,10 @@ class Program
         var outputLines = output.ToString().Split(output.NewLine);
         File.WriteAllLines(ilFilePath, SequencePointTransformHelper.ReplaceWithCSharpCode(outputLines, csFilePath));
       }
-    }
+      ilProgress.Status = ilFileName;
+      Interlocked.Increment(ref ilProgress.UnitsCompleted);
+      ilProgressReporter?.Report(ilProgress);
+    });
     
     return projectId;
   }
