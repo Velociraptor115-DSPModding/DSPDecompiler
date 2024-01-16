@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -244,8 +244,8 @@ class Program
           output.WriteLine();
         }
 
-        var outputStr = SequencePointTransformHelper.ReplaceWithCSharpCode(output.ToString(), csFilePath);
-        File.WriteAllText(ilFilePath, outputStr);
+        var outputLines = output.ToString().Split(output.NewLine);
+        File.WriteAllLines(ilFilePath, SequencePointTransformHelper.ReplaceWithCSharpCode(outputLines, csFilePath));
       }
     }
     

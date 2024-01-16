@@ -1,52 +1,61 @@
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace DSPDecompiler;
 
 public static partial class SequencePointTransformHelper
 {
-  [GeneratedRegex(@"^(?<indent>\s+)\/\/ (?<toReplace>sequence point: \(line (?<lineStart>\d+), col (?<colStart>\d+)\) to \(line (?<lineEnd>\d+), col (?<colEnd>\d+)\).+)$", RegexOptions.Multiline)]
+  [GeneratedRegex(@"^(?<indent>\s+)\/\/ (?<toReplace>sequence point: \(line (?<lineStart>\d+), col (?<colStart>\d+)\) to \(line (?<lineEnd>\d+), col (?<colEnd>\d+)\).+)$")]
   public static partial Regex SequencePointMatchRegex();
   
-  public static string ReplaceWithCSharpCode(string ilText, string csFilePath)
+  public static List<string> ReplaceWithCSharpCode(string[] ilLines, string csFilePath)
   {
-    var lines = File.ReadAllLines(csFilePath);
-    var matches = SequencePointMatchRegex().Matches(ilText);
-    foreach (Match match in matches)
+    var csLines = File.ReadAllLines(csFilePath);
+    var output = new List<string>();
+    foreach (string ilLine in ilLines)
     {
-      if (!match.Success)
-        continue;
-      var lineStart = int.Parse(match.Groups["lineStart"].Value);
-      var lineEnd = int.Parse(match.Groups["lineEnd"].Value);
-      var colStart = int.Parse(match.Groups["colStart"].Value);
-      var colEnd = int.Parse(match.Groups["colEnd"].Value);
-      var indent = match.Groups["indent"].Value;
-
-      string replacement = "";
-
-      if (lineStart != lineEnd)
+      var matches = SequencePointMatchRegex().Matches(ilLine);
+      if (matches.Count == 0)
       {
-        if (colEnd <= colStart)
+        output.Add(ilLine);
+        continue;
+      }
+      foreach (Match match in matches)
+      {
+        if (!match.Success)
         {
-          Console.WriteLine($"Warning: Sequence point spans multiple lines and doesn't seem to follow indents. Skipping. {csFilePath}");
+          output.Add(ilLine);
           continue;
         }
+        var lineStart = int.Parse(match.Groups["lineStart"].Value);
+        var lineEnd = int.Parse(match.Groups["lineEnd"].Value);
+        var colStart = int.Parse(match.Groups["colStart"].Value);
+        var colEnd = int.Parse(match.Groups["colEnd"].Value);
+        var indent = match.Groups["indent"].Value;
 
-        replacement += $"{indent}// {lines[lineStart - 1].Substring(colStart - 1)}";
-        for (int i = lineStart + 1; i <= lineEnd - 1; i++)
+        if (lineStart != lineEnd)
         {
-          replacement += $"{indent}// {lines[i - 1].Substring(colStart - 1)}";
+          if (colEnd <= colStart)
+          {
+            Console.WriteLine($"Warning: Sequence point spans multiple lines and doesn't seem to follow indents. Skipping. {csFilePath}");
+            continue;
+          }
+
+          output.Add($"{indent}// {csLines[lineStart - 1].Substring(colStart - 1)}");
+          for (int i = lineStart + 1; i <= lineEnd - 1; i++)
+          {
+            output.Add($"{indent}// {csLines[i - 1].Substring(colStart - 1)}");
+          }
+          output.Add($"{indent}// {csLines[lineEnd - 1].Substring(colStart - 1, colEnd - colStart)}");
         }
-        replacement += $"{indent}// {lines[lineEnd - 1].Substring(colStart - 1, colEnd - colStart)}";
+        else
+        {
+          output.Add($"{indent}// {csLines[lineStart - 1].Substring(colStart - 1, colEnd - colStart)}");
+        }
       }
-      else
-      {
-        replacement = $"{indent}// {lines[lineStart - 1].Substring(colStart - 1, colEnd - colStart)}";
-      }
-      
-      ilText = ilText.Replace(match.Value, replacement);
     }
     
-    return ilText;
+    return output;
   } 
 
 }
