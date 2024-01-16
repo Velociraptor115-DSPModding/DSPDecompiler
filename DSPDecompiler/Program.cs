@@ -48,7 +48,7 @@ class Program
   [Option("-lv|--languageversion <version>", "C# Language version: CSharp1, CSharp2, CSharp3, " +
                                              "CSharp4, CSharp5, CSharp6, CSharp7, CSharp7_1, CSharp7_2, CSharp7_3, CSharp8_0, CSharp9_0, " +
                                              "CSharp10_0, Preview or Latest", CommandOptionType.SingleValue)]
-  public LanguageVersion LanguageVersion { get; } = LanguageVersion.Latest;
+  public LanguageVersion LanguageVersion { get; } = LanguageVersion.CSharp7_3;
 
   [DirectoryExists]
   [Option("-r|--referencepath <path>",
@@ -117,11 +117,16 @@ class Program
       UseSdkStyleProjectFormat = WholeProjectDecompiler.CanUseSdkStyleProjectFormat(module),
       UseNestedDirectoriesForNamespaces = true,
     };
-    if (!string.IsNullOrEmpty(SettingsPath) && File.Exists(SettingsPath))
-      settings.ReadFromJson(SettingsPath);
+    string settingsPath =
+      string.IsNullOrEmpty(SettingsPath)
+        ? Path.Combine(OutputDirectory, "decompilerSettings.json")
+        : SettingsPath;
+    
+    if (File.Exists(settingsPath))
+      settings.ReadFromJson(settingsPath);
     settings.SetLanguageVersion(LanguageVersion);
-    if (!string.IsNullOrEmpty(SettingsPath))
-      settings.SaveToJson(SettingsPath);
+    if (!string.IsNullOrEmpty(settingsPath))
+      settings.SaveToJson(settingsPath);
     return settings;
   }
 
