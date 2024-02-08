@@ -298,7 +298,9 @@ class Program
         }
 
         var outputLines = output.ToString().Split(output.NewLine);
-        File.WriteAllLines(ilFilePath, SequencePointTransformHelper.ReplaceWithCSharpCode(outputLines, csFilePath));
+        const string ilMethodRvaHeader = "// Method begins at RVA";
+        var outputLinesWithoutRva = outputLines.Where(x => !x.Contains(ilMethodRvaHeader));
+        File.WriteAllLines(ilFilePath, SequencePointTransformHelper.ReplaceWithCSharpCode(outputLinesWithoutRva, csFilePath));
       }
       ilProgress.Status = ilFileName;
       Interlocked.Increment(ref ilProgress.UnitsCompleted);

@@ -8,7 +8,7 @@ public static partial class SequencePointTransformHelper
   [GeneratedRegex(@"^(?<indent>\s+)\/\/ (?<toReplace>sequence point: \(line (?<lineStart>\d+), col (?<colStart>\d+)\) to \(line (?<lineEnd>\d+), col (?<colEnd>\d+)\).+)$")]
   public static partial Regex SequencePointMatchRegex();
   
-  public static List<string> ReplaceWithCSharpCode(string[] ilLines, string csFilePath)
+  public static List<string> ReplaceWithCSharpCode(IEnumerable<string> ilLines, string csFilePath)
   {
     var csLines = File.ReadAllLines(csFilePath);
     var output = new List<string>();
